@@ -64,6 +64,13 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
   static final String JSON_TYPE_NAME = "json";
   static final String JSONB_TYPE_NAME = "jsonb";
 
+  private static final Transform<ColumnId> placeholderTransform = (builder, col) -> {
+    builder.append("?");
+    if (col.name().endsWith("_json")) {
+      builder.append("::JSON");
+    }
+  };
+
   /**
    * Create a new dialect instance with the given connector configuration.
    *
@@ -223,6 +230,29 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
   }
 
   @Override
+  public String buildInsertStatement(
+          TableId table,
+          Collection<ColumnId> keyColumns,
+          Collection<ColumnId> nonKeyColumns
+  ) {
+    ExpressionBuilder builder = expressionBuilder();
+    builder.append("INSERT INTO ");
+    builder.append(table);
+    builder.append("(");
+    builder.appendList()
+            .delimitedBy(",")
+            .transformedBy(ExpressionBuilder.columnNames())
+            .of(keyColumns, nonKeyColumns);
+    builder.append(") VALUES(");
+    builder.appendList()
+            .delimitedBy(",")
+            .transformedBy(placeholderTransform)
+            .of(keyColumns, nonKeyColumns);
+    builder.append(")");
+    return builder.toString();
+  }
+
+  @Override
   public String buildUpsertQueryStatement(
       TableId table,
       Collection<ColumnId> keyColumns,
@@ -243,7 +273,10 @@ public class PostgreSqlDatabaseDialect extends GenericDatabaseDialect {
            .transformedBy(ExpressionBuilder.columnNames())
            .of(keyColumns, nonKeyColumns);
     builder.append(") VALUES (");
-    builder.appendMultiple(",", "?", keyColumns.size() + nonKeyColumns.size());
+    builder.appendList()
+            .delimitedBy(",")
+            .transformedBy(placeholderTransform)
+            .of(keyColumns, nonKeyColumns);
     builder.append(") ON CONFLICT (");
     builder.appendList()
            .delimitedBy(",")
